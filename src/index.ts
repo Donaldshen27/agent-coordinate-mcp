@@ -2,28 +2,27 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { TaskManager } from './taskManager.js';
+import { TaskCoordinatorClient } from './httpClient.js';
 import { Task, TaskUpdate } from './types.js';
-import { WebServer } from './webServer.js';
 
-const taskManager = new TaskManager(5);
-let webServer: WebServer | null = null;
+// Get server URL from environment or use default
+const serverUrl = process.env.TASK_COORDINATOR_URL || 'http://localhost:3335';
+const client = new TaskCoordinatorClient(serverUrl);
 
-// Always start web server when running as MCP server
-// Can be disabled with --no-web flag
-const disableWeb = process.argv.includes('--no-web');
-const portArg = process.argv.find(arg => arg.startsWith('--port='));
-const port = portArg ? parseInt(portArg.split('=')[1]) : 3334;
-
-if (!disableWeb) {
+// Check if server is available
+async function checkServerConnection() {
   try {
-    webServer = new WebServer(taskManager, port);
-    webServer.start();
-  } catch (error) {
-    // Log error but continue running the MCP server
-    console.error('[ERROR] Failed to initialize web server:', error);
-    console.error('[ERROR] The MCP server will continue without the web dashboard.');
-    webServer = null;
+    const isHealthy = await client.checkHealth();
+    if (!isHealthy) {
+      console.error(`Cannot connect to Task Coordinator Server at ${serverUrl}`);
+      console.error('Please start the server with: npm run server');
+      process.exit(1);
+    }
+  } catch (error: any) {
+    console.error(`Cannot connect to Task Coordinator Server at ${serverUrl}`);
+    console.error('Please start the server with: npm run server');
+    console.error(`Error details: ${error.message}`);
+    process.exit(1);
   }
 }
 
@@ -198,10 +197,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'claim_worker_slot': {
-        const slot = await taskManager.claimWorkerSlot();
-        if (slot !== null && webServer) {
-          await webServer.broadcastUpdate();
-        }
+        const slot = await client.claimWorkerSlot();
         return {
           content: [
             {
@@ -217,10 +213,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'release_worker_slot': {
         const { slot } = args as { slot: number };
-        await taskManager.releaseWorkerSlot(slot);
-        if (webServer) {
-          webServer.broadcastUpdate();
-        }
+        await client.releaseWorkerSlot(slot);
         return {
           content: [
             {
@@ -232,7 +225,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_available_tasks': {
-        const tasks = await taskManager.getAvailableTasks();
+        const tasks = await client.getAvailableTasks();
         return {
           content: [
             {
@@ -249,10 +242,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           workerId: string;
           workerSlot: number;
         };
-        const success = await taskManager.claimTask(taskId, workerId, workerSlot);
-        if (success && webServer) {
-          webServer.broadcastUpdate();
-        }
+        const success = await client.claimTask(taskId, workerId, workerSlot);
         return {
           content: [
             {
@@ -275,10 +265,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           error?: string;
         };
         const update: TaskUpdate = { taskId, status, workerId, output, error };
-        const success = await taskManager.updateTask(update);
-        if (success && webServer) {
-          webServer.broadcastUpdate();
-        }
+        const success = await client.updateTask(update);
         return {
           content: [
             {
@@ -306,10 +293,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           dependencies,
           output,
         };
-        await taskManager.addTask(task);
-        if (webServer) {
-          webServer.broadcastUpdate();
-        }
+        await client.addTask(task);
         return {
           content: [
             {
@@ -321,7 +305,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_all_tasks': {
-        const tasks = await taskManager.getTasks();
+        const tasks = await client.getTasks();
         return {
           content: [
             {
@@ -333,7 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_workers': {
-        const workers = await taskManager.getWorkers();
+        const workers = await client.getWorkers();
         return {
           content: [
             {
@@ -346,10 +330,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'reset_failed_task': {
         const { taskId } = args as { taskId: string };
-        const success = await taskManager.resetFailedTask(taskId);
-        if (success && webServer) {
-          webServer.broadcastUpdate();
-        }
+        const success = await client.resetFailedTask(taskId);
         return {
           content: [
             {
@@ -389,9 +370,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Start the server
 async function main() {
+  // Check server connection before starting
+  await checkServerConnection();
+  
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // MCP servers should not output to stderr unless there's an error
+  // Successfully connected to Task Coordinator Server
 }
 
 main().catch((error) => {

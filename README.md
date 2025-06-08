@@ -1,31 +1,56 @@
 # Task Coordinator MCP Server
 
-An MCP (Model Context Protocol) server that enables multiple Claude Code instances to coordinate work on parallel tasks without conflicts. This solves the race condition issues inherent in file-based coordination systems.
+A persistent task coordination server with MCP (Model Context Protocol) client that enables multiple Claude instances to coordinate work on parallel tasks without conflicts. This solves the critical issue where each Claude instance spawns its own isolated MCP server, preventing proper task synchronization.
 
 ## Problem Solved
 
-When running multiple Claude Code instances on the same project, you need a way to:
-- Prevent duplicate work on the same task
-- Manage worker slots atomically
-- Track task dependencies
-- Handle failures gracefully
+The default MCP architecture has a critical limitation:
+- Each Claude instance spawns its own MCP server
+- Multiple Claude instances cannot share state
+- Task coordination between instances is impossible
 
-This MCP server provides atomic operations for task coordination, eliminating race conditions that occur with simple file-based approaches.
+This project solves this by:
+- **Standalone Server**: A persistent HTTP/WebSocket server that runs independently
+- **MCP Client**: The MCP server acts as a thin client connecting to the standalone server
+- **Shared State**: All Claude instances connect to the same server, ensuring synchronized state
+
+## Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Claude #1      │     │  Claude #2      │     │  Claude #3      │
+│  MCP Client     │     │  MCP Client     │     │  MCP Client     │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │ HTTP/WS               │ HTTP/WS               │ HTTP/WS
+         └───────────────────────┴───────────────────────┘
+                                 │
+                    ┌────────────▼────────────┐
+                    │  Standalone Server      │
+                    │  - Task Manager         │
+                    │  - Worker Slots         │
+                    │  - Web Dashboard        │
+                    │  Port 3335 (API)        │
+                    │  Port 3333 (Dashboard)  │
+                    └─────────────────────────┘
+```
 
 ## Features
 
+- **Persistent Server**: Runs independently, maintains state across Claude sessions
 - **Atomic Operations**: All task claims and updates are atomic, preventing race conditions
 - **Worker Slot Management**: Limited worker slots (default 5) to control concurrency
 - **Dependency Tracking**: Tasks can depend on other tasks being completed first
-- **Task States**: Available, Working, Done, or Failed
+- **Real-time Updates**: WebSocket support for live updates across all clients
+- **Web Dashboard**: Visual monitoring of tasks and workers at http://localhost:3333
 - **Failure Recovery**: Failed tasks can be reset to available
-- **Lock-based Concurrency**: Internal locking ensures thread-safe operations
 
-## Installation
+## Quick Start
+
+### 1. Installation
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/yourusername/agent-coordinate-mcp.git
 cd agent-coordinate-mcp
 
 # Install dependencies
@@ -35,55 +60,52 @@ npm install
 npm run build
 ```
 
-## Usage
+### 2. Start the Standalone Server
 
-### 1. Configure Claude Code
+```bash
+# Start the server (required before using with Claude)
+npm run server
 
-Add to your Claude Code settings:
+# Or use the start script
+./start-server.sh
+```
+
+The server will start on:
+- **API**: http://localhost:3335
+- **Dashboard**: http://localhost:3333
+
+### 3. Configure Claude Code
+
+You can either:
+
+**Option A: Use the automated script**
+```bash
+./update-claude-config.py
+```
+
+**Option B: Manually edit `~/.claude.json`**
+
+Find your project's `task-coordinator` configuration and add the `env` section:
 
 ```json
-{
-  "mcpServers": {
-    "task-coordinator": {
-      "command": "node",
-      "args": ["/path/to/agent-coordinate-mcp/dist/index.js"]
-    }
+"task-coordinator": {
+  "command": "node",
+  "args": [
+    "/path/to/agent-coordinate-mcp/dist/index.js"
+  ],
+  "env": {
+    "TASK_COORDINATOR_URL": "http://localhost:3335"
   }
 }
 ```
 
-### 2. Web Dashboard (Optional)
+### 4. Restart Claude Code
 
-The server includes a web dashboard for visualizing tasks and workers in real-time.
+After configuration, restart Claude Code for the changes to take effect.
 
-To run with the web interface:
+## Usage
 
-```bash
-# Install dependencies
-npm install
-
-# Build the project
-npm run build
-
-# Start with web dashboard
-npm run start:web
-
-# Or in development mode
-npm run dev:web
-```
-
-Then open http://localhost:3333 in your browser.
-
-Features:
-- Real-time visualization of worker slots
-- Task status monitoring with filtering
-- Add new tasks through the UI
-- WebSocket updates for live changes
-- Connection status indicator
-
-### 3. Available Tools
-
-The MCP server provides these tools:
+### Available MCP Tools
 
 #### Worker Management
 - `claim_worker_slot()` - Claim an available worker slot
@@ -98,8 +120,9 @@ The MCP server provides these tools:
 - `update_task(taskId, status, workerId, output?, error?)` - Update task status
 - `reset_failed_task(taskId)` - Reset a failed task to available
 
-### 4. Example Workflow
+### Example Workflow
 
+**Claude Instance 1:**
 ```typescript
 // Worker 1 starts
 const slot1 = await claim_worker_slot(); // Returns 1
@@ -107,28 +130,81 @@ const tasks = await get_available_tasks();
 await claim_task('TASK-001', 'worker-1', slot1);
 // ... do work ...
 await update_task('TASK-001', 'done', 'worker-1', 'Completed successfully');
+await release_worker_slot(slot1);
+```
 
-// Worker 2 runs concurrently
+**Claude Instance 2 (running concurrently):**
+```typescript
+// Worker 2 runs in a different Claude instance
 const slot2 = await claim_worker_slot(); // Returns 2
-const tasks = await get_available_tasks(); // Won't show TASK-001
+const tasks = await get_available_tasks(); // Won't show TASK-001 (already claimed)
 await claim_task('TASK-002', 'worker-2', slot2);
 ```
 
-### 5. Setting Up Tasks
-
-Example task structure for building a todo app:
+### Setting Up Tasks with Dependencies
 
 ```typescript
-// Phase 1: Setup
-await add_task('TASK-001', 'Initialize Next.js project', []);
-await add_task('TASK-002', 'Set up Prisma with SQLite', []);
-await add_task('TASK-003', 'Create environment configuration', []);
+// Phase 1: Setup tasks
+await add_task('setup-project', 'Initialize Next.js project');
+await add_task('setup-db', 'Set up Prisma with SQLite');
+await add_task('setup-env', 'Create environment configuration');
 
-// Phase 2: Features (depend on setup)
-await add_task('TASK-004', 'Implement auth API routes', ['TASK-001', 'TASK-002']);
-await add_task('TASK-005', 'Create login pages', ['TASK-001']);
-await add_task('TASK-006', 'Build auth context', ['TASK-004', 'TASK-005']);
+// Phase 2: Feature tasks (depend on setup)
+await add_task('auth-api', 'Implement auth API routes', ['setup-project', 'setup-db']);
+await add_task('auth-ui', 'Create login pages', ['setup-project']);
+await add_task('auth-context', 'Build auth context', ['auth-api', 'auth-ui']);
 ```
+
+## Web Dashboard
+
+Access the real-time dashboard at http://localhost:3333 to:
+- Monitor worker slot usage
+- View task status and progress
+- Filter tasks by status
+- Add new tasks through the UI
+- See live updates as tasks are claimed and completed
+
+## Project Structure
+
+```
+agent-coordinate-mcp/
+├── src/
+│   ├── index.ts           # MCP client that connects to standalone server
+│   ├── standaloneServer.ts # Persistent HTTP/WebSocket server
+│   ├── httpClient.ts      # HTTP client for server communication
+│   ├── taskManager.ts     # Core task management logic
+│   ├── webServer.ts       # Web dashboard server
+│   └── types.ts           # TypeScript type definitions
+├── public/                # Web dashboard files
+│   ├── index.html
+│   ├── script.js
+│   └── styles.css
+├── dist/                  # Compiled JavaScript (after build)
+├── start-server.sh        # Script to start the standalone server
+└── update-claude-config.py # Script to update Claude configuration
+```
+
+## Troubleshooting
+
+### "Cannot connect to Task Coordinator Server"
+- Ensure the standalone server is running: `npm run server`
+- Check if the server is accessible: `curl http://localhost:3335/api/health`
+- Verify the `TASK_COORDINATOR_URL` in your Claude config
+
+### MCP Server shows as "failed" in Claude
+- Make sure you've added the `TASK_COORDINATOR_URL` environment variable
+- Restart Claude Code completely (not just reload)
+- Check logs in `~/.cache/claude-cli-nodejs/`
+
+### Multiple Instances Not Synchronizing
+- Confirm all Claude instances have the same `TASK_COORDINATOR_URL`
+- Check the web dashboard to see if connections are being made
+- Verify the server logs for any errors
+
+### Port Already in Use
+- The standalone server uses port 3335 by default
+- The web dashboard uses port 3333
+- Change ports with environment variables if needed
 
 ## Development
 
@@ -136,49 +212,80 @@ await add_task('TASK-006', 'Build auth context', ['TASK-004', 'TASK-005']);
 # Run tests
 npm test
 
-# Run tests in watch mode
-npm run test:watch
-
-# Development mode
+# Development mode (MCP client)
 npm run dev
+
+# Development mode (Standalone server)
+npm run server:dev
+
+# Build the project
+npm run build
 ```
 
-## Architecture
+## Configuration
 
-The server uses a lock-based approach to ensure atomic operations:
+### Environment Variables
 
-1. **Lock Manager**: Each operation acquires a lock before modifying state
-2. **Task Manager**: Handles all task and worker operations atomically
-3. **MCP Interface**: Exposes tools via the Model Context Protocol
+- `TASK_COORDINATOR_URL`: URL of the standalone server (default: `http://localhost:3335`)
+- `PORT`: Port for the standalone server API (default: `3335`)
 
-## Benefits Over File-Based Coordination
+### Running on Different Ports
 
-1. **No Race Conditions**: Atomic operations prevent conflicts
-2. **Immediate Consistency**: No file system delays or caching issues
-3. **Better Performance**: In-memory operations are faster than file I/O
-4. **Reliable State**: No partial writes or corrupted states
+If you need to use different ports:
 
-## Testing
+1. Start server on a different port:
+   ```bash
+   PORT=8080 npm run server
+   ```
 
-The project includes comprehensive tests covering:
-- Concurrent worker slot claims
-- Concurrent task claims
-- Dependency resolution
-- Failure scenarios
-- Complex multi-level dependencies
+2. Update Claude configuration:
+   ```json
+   "env": {
+     "TASK_COORDINATOR_URL": "http://localhost:8080"
+   }
+   ```
 
-Run tests with: `npm test`
+### Remote Server Setup
 
-## Limitations
+To run the coordinator on a different machine:
 
-- State is in-memory only (resets on server restart)
-- Maximum 5 concurrent workers by default (configurable)
-- No persistence between sessions
+1. Start server on the remote machine:
+   ```bash
+   npm run server
+   ```
+
+2. Update Claude configuration on client machines:
+   ```json
+   "env": {
+     "TASK_COORDINATOR_URL": "http://192.168.1.100:3335"
+   }
+   ```
+
+## Benefits
+
+1. **True Multi-Instance Coordination**: All Claude instances share the same state
+2. **Persistent State**: Server maintains state between Claude sessions
+3. **No Race Conditions**: Atomic operations at the server level
+4. **Scalability**: Can be extended to support multiple machines
+5. **Real-time Monitoring**: Web dashboard provides visibility into task progress
+6. **Dependency Management**: Tasks wait for their dependencies to complete
+7. **Failure Recovery**: Failed tasks can be reset and retried
 
 ## Future Enhancements
 
-- Persistent state storage
-- Task priorities
-- Worker heartbeats
-- Task timeouts
-- Metrics and logging
+- [ ] Persistent storage (SQLite/PostgreSQL)
+- [ ] Task priorities and deadlines
+- [ ] Worker heartbeats and automatic timeout
+- [ ] Task history and audit logs
+- [ ] Authentication and access control
+- [ ] Task templates and bulk operations
+- [ ] Performance metrics and analytics
+- [ ] Distributed server clustering
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+MIT License - see LICENSE file for details

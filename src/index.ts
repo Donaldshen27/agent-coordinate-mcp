@@ -9,11 +9,22 @@ import { WebServer } from './webServer.js';
 const taskManager = new TaskManager(5);
 let webServer: WebServer | null = null;
 
-// Check if --web flag is passed
-const enableWeb = process.argv.includes('--web');
-if (enableWeb) {
-  webServer = new WebServer(taskManager);
-  webServer.start();
+// Always start web server when running as MCP server
+// Can be disabled with --no-web flag
+const disableWeb = process.argv.includes('--no-web');
+const portArg = process.argv.find(arg => arg.startsWith('--port='));
+const port = portArg ? parseInt(portArg.split('=')[1]) : 3334;
+
+if (!disableWeb) {
+  try {
+    webServer = new WebServer(taskManager, port);
+    webServer.start();
+  } catch (error) {
+    // Log error but continue running the MCP server
+    console.error('[ERROR] Failed to initialize web server:', error);
+    console.error('[ERROR] The MCP server will continue without the web dashboard.');
+    webServer = null;
+  }
 }
 
 const server = new Server(
@@ -188,6 +199,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'claim_worker_slot': {
         const slot = await taskManager.claimWorkerSlot();
+        if (slot !== null && webServer) {
+          await webServer.broadcastUpdate();
+        }
         return {
           content: [
             {
@@ -377,7 +391,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('Task Coordinator MCP server running on stdio');
+  // MCP servers should not output to stderr unless there's an error
 }
 
 main().catch((error) => {

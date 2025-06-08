@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { TaskManager } from './taskManager.js';
+import { logger } from './logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +17,7 @@ export class WebServer {
   private taskManager: TaskManager;
   private port: number;
 
-  constructor(taskManager: TaskManager, port: number = 3333) {
+  constructor(taskManager: TaskManager, port: number = 3334) {
     this.taskManager = taskManager;
     this.port = port;
     this.app = express();
@@ -36,22 +37,22 @@ export class WebServer {
 
   private setupRoutes() {
     // API endpoint to get all tasks
-    this.app.get('/api/tasks', (req, res) => {
-      const tasks = this.taskManager.getTasks();
+    this.app.get('/api/tasks', async (req, res) => {
+      const tasks = await this.taskManager.getTasks();
       res.json(tasks);
     });
 
     // API endpoint to get all workers
-    this.app.get('/api/workers', (req, res) => {
-      const workers = this.taskManager.getWorkers();
+    this.app.get('/api/workers', async (req, res) => {
+      const workers = await this.taskManager.getWorkers();
       res.json(workers);
     });
 
     // API endpoint to add a new task
-    this.app.post('/api/tasks', (req, res) => {
+    this.app.post('/api/tasks', async (req, res) => {
       const { id, description, dependencies, output } = req.body;
       try {
-        this.taskManager.addTask({ 
+        await this.taskManager.addTask({ 
           id, 
           description, 
           dependencies: dependencies || [], 
@@ -59,7 +60,7 @@ export class WebServer {
           status: 'available'
         });
         res.json({ success: true });
-        this.broadcastUpdate();
+        await this.broadcastUpdate();
       } catch (error) {
         res.status(400).json({ error: (error as Error).message });
       }
@@ -72,31 +73,41 @@ export class WebServer {
   }
 
   private setupWebSocket() {
-    this.wss.on('connection', (ws) => {
-      console.log('New WebSocket connection');
+    this.wss.on('connection', async (ws) => {
+      logger.log('New WebSocket connection');
       
       // Send initial state
+      const [tasks, workers] = await Promise.all([
+        this.taskManager.getTasks(),
+        this.taskManager.getWorkers()
+      ]);
+      
       ws.send(JSON.stringify({
         type: 'initial',
-        tasks: this.taskManager.getTasks(),
-        workers: this.taskManager.getWorkers()
+        tasks,
+        workers
       }));
 
       ws.on('message', (message) => {
-        console.log('Received:', message.toString());
+        logger.log('Received:', message.toString());
       });
 
       ws.on('close', () => {
-        console.log('WebSocket connection closed');
+        logger.log('WebSocket connection closed');
       });
     });
   }
 
-  public broadcastUpdate() {
+  public async broadcastUpdate() {
+    const [tasks, workers] = await Promise.all([
+      this.taskManager.getTasks(),
+      this.taskManager.getWorkers()
+    ]);
+    
     const update = {
       type: 'update',
-      tasks: this.taskManager.getTasks(),
-      workers: this.taskManager.getWorkers()
+      tasks,
+      workers
     };
 
     this.wss.clients.forEach((client) => {
@@ -107,8 +118,22 @@ export class WebServer {
   }
 
   public start() {
+    // Handle errors on the WebSocket server
+    this.wss.on('error', (err: any) => {
+      logger.error(`WebSocket server error: ${err.message}`);
+    });
+
     this.server.listen(this.port, () => {
-      console.log(`Web server running on http://localhost:${this.port}`);
+      logger.log(`Web server running on http://localhost:${this.port}`);
+    }).on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Port ${this.port} is already in use. The MCP server will continue without the web dashboard.`);
+        logger.error(`To use a different port, restart with --port=<number>`);
+        // Close the WebSocket server to prevent it from throwing
+        this.wss.close();
+      } else {
+        logger.error(`Failed to start web server: ${err.message}`);
+      }
     });
   }
 

@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "start": "node dist/index.js --web",
     "dev": "tsx src/index.ts",
     "dev:web": "tsx src/index.ts --web",
     "start:web": "node dist/index.js --web",

@@ -52,7 +52,36 @@ Add to your Claude Code settings:
 }
 ```
 
-### 2. Available Tools
+### 2. Web Dashboard (Optional)
+
+The server includes a web dashboard for visualizing tasks and workers in real-time.
+
+To run with the web interface:
+
+```bash
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Start with web dashboard
+npm run start:web
+
+# Or in development mode
+npm run dev:web
+```
+
+Then open http://localhost:3000 in your browser.
+
+Features:
+- Real-time visualization of worker slots
+- Task status monitoring with filtering
+- Add new tasks through the UI
+- WebSocket updates for live changes
+- Connection status indicator
+
+### 3. Available Tools
 
 The MCP server provides these tools:
 
@@ -69,7 +98,7 @@ The MCP server provides these tools:
 - `update_task(taskId, status, workerId, output?, error?)` - Update task status
 - `reset_failed_task(taskId)` - Reset a failed task to available
 
-### 3. Example Workflow
+### 4. Example Workflow
 
 ```typescript
 // Worker 1 starts
@@ -85,7 +114,7 @@ const tasks = await get_available_tasks(); // Won't show TASK-001
 await claim_task('TASK-002', 'worker-2', slot2);
 ```
 
-### 4. Setting Up Tasks
+### 5. Setting Up Tasks
 
 Example task structure for building a todo app:
 
@@ -152,5 +181,4 @@ Run tests with: `npm test`
 - Task priorities
 - Worker heartbeats
 - Task timeouts
-- Web UI for monitoring
 - Metrics and logging

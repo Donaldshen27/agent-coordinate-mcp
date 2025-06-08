@@ -4,8 +4,17 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { TaskManager } from './taskManager.js';
 import { Task, TaskUpdate } from './types.js';
+import { WebServer } from './webServer.js';
 
 const taskManager = new TaskManager(5);
+let webServer: WebServer | null = null;
+
+// Check if --web flag is passed
+const enableWeb = process.argv.includes('--web');
+if (enableWeb) {
+  webServer = new WebServer(taskManager);
+  webServer.start();
+}
 
 const server = new Server(
   {
@@ -195,6 +204,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'release_worker_slot': {
         const { slot } = args as { slot: number };
         await taskManager.releaseWorkerSlot(slot);
+        if (webServer) {
+          webServer.broadcastUpdate();
+        }
         return {
           content: [
             {
@@ -224,6 +236,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           workerSlot: number;
         };
         const success = await taskManager.claimTask(taskId, workerId, workerSlot);
+        if (success && webServer) {
+          webServer.broadcastUpdate();
+        }
         return {
           content: [
             {
@@ -247,6 +262,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
         const update: TaskUpdate = { taskId, status, workerId, output, error };
         const success = await taskManager.updateTask(update);
+        if (success && webServer) {
+          webServer.broadcastUpdate();
+        }
         return {
           content: [
             {
@@ -275,6 +293,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           output,
         };
         await taskManager.addTask(task);
+        if (webServer) {
+          webServer.broadcastUpdate();
+        }
         return {
           content: [
             {
@@ -312,6 +333,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'reset_failed_task': {
         const { taskId } = args as { taskId: string };
         const success = await taskManager.resetFailedTask(taskId);
+        if (success && webServer) {
+          webServer.broadcastUpdate();
+        }
         return {
           content: [
             {

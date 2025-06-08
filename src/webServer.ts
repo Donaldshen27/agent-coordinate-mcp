@@ -16,7 +16,7 @@ export class WebServer {
   private taskManager: TaskManager;
   private port: number;
 
-  constructor(taskManager: TaskManager, port: number = 3000) {
+  constructor(taskManager: TaskManager, port: number = 3333) {
     this.taskManager = taskManager;
     this.port = port;
     this.app = express();

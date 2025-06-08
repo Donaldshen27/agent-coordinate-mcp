@@ -72,7 +72,7 @@ npm run start:web
 npm run dev:web
 ```
 
-Then open http://localhost:3000 in your browser.
+Then open http://localhost:3333 in your browser.
 
 Features:
 - Real-time visualization of worker slots

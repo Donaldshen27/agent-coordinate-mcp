@@ -1,6 +1,6 @@
 # Task Coordinator MCP Server
 
-A persistent task coordination server with MCP (Model Context Protocol) client that enables multiple Claude instances to coordinate work on parallel tasks without conflicts. This solves the critical issue where each Claude instance spawns its own isolated MCP server, preventing proper task synchronization.
+A persistent task coordination server with MCP (Model Context Protocol) client that enables multiple Claude instances to coordinate work on parallel tasks without conflicts. Features SQLite database persistence to maintain task state across server restarts. This solves the critical issue where each Claude instance spawns its own isolated MCP server, preventing proper task synchronization.
 
 ## Problem Solved
 
@@ -37,12 +37,14 @@ This project solves this by:
 ## Features
 
 - **Persistent Server**: Runs independently, maintains state across Claude sessions
+- **Database Persistence**: SQLite database preserves tasks and state across server restarts
 - **Atomic Operations**: All task claims and updates are atomic, preventing race conditions
 - **Worker Slot Management**: Limited worker slots (default 5) to control concurrency
 - **Dependency Tracking**: Tasks can depend on other tasks being completed first
 - **Real-time Updates**: WebSocket support for live updates across all clients
 - **Web Dashboard**: Visual monitoring of tasks and workers at http://localhost:3333
 - **Failure Recovery**: Failed tasks can be reset to available
+- **Automatic Schema Creation**: Database tables are created automatically on first run
 
 ## Quick Start
 
@@ -172,7 +174,9 @@ agent-coordinate-mcp/
 │   ├── index.ts           # MCP client that connects to standalone server
 │   ├── standaloneServer.ts # Persistent HTTP/WebSocket server
 │   ├── httpClient.ts      # HTTP client for server communication
-│   ├── taskManager.ts     # Core task management logic
+│   ├── taskManager.ts     # Core task management logic (in-memory)
+│   ├── taskManagerWithDB.ts # Task manager with database persistence
+│   ├── database.ts        # SQLite database operations
 │   ├── webServer.ts       # Web dashboard server
 │   └── types.ts           # TypeScript type definitions
 ├── public/                # Web dashboard files
@@ -180,6 +184,7 @@ agent-coordinate-mcp/
 │   ├── script.js
 │   └── styles.css
 ├── dist/                  # Compiled JavaScript (after build)
+├── task-coordinator.db    # SQLite database (created automatically)
 ├── start-server.sh        # Script to start the standalone server
 └── update-claude-config.py # Script to update Claude configuration
 ```
@@ -271,9 +276,21 @@ To run the coordinator on a different machine:
 6. **Dependency Management**: Tasks wait for their dependencies to complete
 7. **Failure Recovery**: Failed tasks can be reset and retried
 
+## Database Persistence
+
+The task coordinator now includes SQLite database persistence:
+
+- Tasks and their states are automatically saved to `task-coordinator.db`
+- Server can be restarted without losing task data
+- Worker slots are properly reset on restart
+- Database schema is created automatically on first run
+
+For more details, see [Database Persistence Documentation](docs/database-persistence.md).
+
 ## Future Enhancements
 
-- [ ] Persistent storage (SQLite/PostgreSQL)
+- [x] Persistent storage (SQLite) - **Implemented!**
+- [ ] PostgreSQL support for larger deployments
 - [ ] Task priorities and deadlines
 - [ ] Worker heartbeats and automatic timeout
 - [ ] Task history and audit logs
@@ -281,6 +298,8 @@ To run the coordinator on a different machine:
 - [ ] Task templates and bulk operations
 - [ ] Performance metrics and analytics
 - [ ] Distributed server clustering
+- [ ] Database backup and restore
+- [ ] Data retention policies
 
 ## Contributing
 

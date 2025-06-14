@@ -2,27 +2,32 @@
 
 To configure Claude to use the environment variable `TASK_COORDINATOR_URL`, you need to update your Claude configuration file at `~/.claude.json`.
 
-## Current Configuration
-Your current task-coordinator configuration looks like this:
-```json
-"task-coordinator": {
-  "command": "node",
-  "args": [
-    "/home/a11a2/projects/agent-coorinate-mcp/dist/index.js"
-  ]
-}
+## Quick Setup (Recommended)
+
+Run the provided Python script to automatically add the task-coordinator MCP server to your global configuration:
+
+```bash
+python update-claude-config.py
 ```
 
-## Updated Configuration
-You need to add an `env` section with the `TASK_COORDINATOR_URL`:
+This will make the MCP server available from any directory when you run Claude.
+
+## Manual Configuration
+
+If you prefer to manually configure, add this to the global `mcpServers` section in `~/.claude.json`:
+
 ```json
-"task-coordinator": {
-  "command": "node",
-  "args": [
-    "/home/a11a2/projects/agent-coorinate-mcp/dist/index.js"
-  ],
-  "env": {
-    "TASK_COORDINATOR_URL": "http://localhost:3335"
+{
+  "mcpServers": {
+    "task-coordinator": {
+      "command": "node",
+      "args": [
+        "/home/a11a2/projects/agent-coorinate-mcp/dist/index.js"
+      ],
+      "env": {
+        "TASK_COORDINATOR_URL": "http://localhost:3335"
+      }
+    }
   }
 }
 ```

@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { TaskManager } from './taskManager.js';
+import { TaskManagerWithDB } from './taskManagerWithDB.js';
 import { Task, TaskUpdate } from './types.js';
 import { WebServer } from './webServer.js';
 
@@ -14,11 +14,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const taskManager = new TaskManager(MAX_WORKERS);
-
-// Start web dashboard
-const webServer = new WebServer(taskManager, 3333);
-webServer.start();
+// Initialize task manager with database
+const taskManager = new TaskManagerWithDB(MAX_WORKERS);
+let webServer: WebServer;
 
 // Create HTTP server
 const server = createServer(app);
@@ -42,7 +40,9 @@ async function broadcastUpdate(type: string, data: any) {
       }
     });
     // Also update web dashboard
-    webServer.broadcastUpdate();
+    if (webServer) {
+      webServer.broadcastUpdate();
+    }
   } catch (error) {
     console.error('[ERROR] Failed to broadcast update:', error);
   }
@@ -160,6 +160,16 @@ app.post('/api/reset-failed-task', async (req, res) => {
   }
 });
 
+app.post('/api/clean-all-tasks', async (req, res) => {
+  try {
+    await taskManager.cleanAllTasks();
+    broadcastUpdate('all-tasks-cleaned', {});
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
@@ -187,20 +197,39 @@ wss.on('connection', async (ws) => {
   });
 });
 
-// Start server
-const port = process.env.PORT || DEFAULT_PORT;
-server.listen(port, () => {
-  console.log(`[INFO] Task Coordinator Server running on port ${port}`);
-  console.log(`[INFO] Web dashboard available at http://localhost:3333`);
-  console.log(`[INFO] API endpoints available at http://localhost:${port}/api/*`);
-  console.log(`[INFO] WebSocket endpoint available at ws://localhost:${port}`);
-});
+// Initialize and start server
+async function startServer() {
+  try {
+    await taskManager.initialize();
+    
+    // Start web dashboard
+    webServer = new WebServer(taskManager as any, 3333);
+    webServer.start();
+    
+    // Start main server
+    const port = process.env.PORT || DEFAULT_PORT;
+    server.listen(port, () => {
+      console.log(`[INFO] Task Coordinator Server running on port ${port}`);
+      console.log(`[INFO] Web dashboard available at http://localhost:3333`);
+      console.log(`[INFO] API endpoints available at http://localhost:${port}/api/*`);
+      console.log(`[INFO] WebSocket endpoint available at ws://localhost:${port}`);
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('[INFO] SIGTERM received, shutting down gracefully');
-  server.close(() => {
+  server.close(async () => {
     console.log('[INFO] Server closed');
+    await taskManager.close();
+    console.log('[INFO] Database connection closed');
     process.exit(0);
   });
 });

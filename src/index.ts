@@ -186,6 +186,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['taskId'],
         },
       },
+      {
+        name: 'clean_all_tasks',
+        description: 'Remove all tasks and reset all worker slots. WARNING: This action cannot be undone.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
     ],
   };
 });
@@ -338,6 +347,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               text: success
                 ? `Reset task ${taskId} to available`
                 : `Failed to reset task ${taskId}`,
+            },
+          ],
+          isError: !success,
+        };
+      }
+
+      case 'clean_all_tasks': {
+        const success = await client.cleanAllTasks();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: success
+                ? 'Successfully cleaned all tasks and reset worker slots'
+                : 'Failed to clean all tasks',
             },
           ],
           isError: !success,

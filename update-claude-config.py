@@ -15,27 +15,35 @@ if not os.path.exists(config_path):
 with open(config_path, 'r') as f:
     config = json.load(f)
 
-# Find all projects with task-coordinator
-updated = False
-if 'projects' in config:
-    for project_path, project_config in config['projects'].items():
-        if 'mcpServers' in project_config and 'task-coordinator' in project_config['mcpServers']:
-            # Update or create the env section
-            if 'env' not in project_config['mcpServers']['task-coordinator']:
-                project_config['mcpServers']['task-coordinator']['env'] = {}
-            
-            project_config['mcpServers']['task-coordinator']['env']['TASK_COORDINATOR_URL'] = 'http://localhost:3335'
-            print(f"✓ Updated task-coordinator in project: {project_path}")
-            updated = True
+# Ensure mcpServers exists at the global level
+if 'mcpServers' not in config:
+    config['mcpServers'] = {}
 
-if updated:
-    # Write the updated config back
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    print("\n✓ Successfully updated Claude configuration")
-    print("  Added TASK_COORDINATOR_URL=http://localhost:3335")
-    print("\nPlease restart Claude Code for the changes to take effect.")
-else:
-    print("Error: task-coordinator not found in any project configuration")
-    sys.exit(1)
+# Get the current project directory
+current_dir = os.path.abspath(os.path.dirname(__file__))
+
+# Define the task-coordinator configuration
+task_coordinator_config = {
+    "command": "node",
+    "args": [
+        os.path.join(current_dir, "dist", "index.js")
+    ],
+    "env": {
+        "TASK_COORDINATOR_URL": "http://localhost:3335"
+    }
+}
+
+# Add or update the global task-coordinator configuration
+config['mcpServers']['task-coordinator'] = task_coordinator_config
+
+# Write the updated config back
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
+
+print("✓ Successfully updated Claude global configuration")
+print(f"  Added task-coordinator MCP server globally")
+print(f"  Command: node {os.path.join(current_dir, 'dist', 'index.js')}")
+print(f"  Environment: TASK_COORDINATOR_URL=http://localhost:3335")
+print("\nThe task-coordinator MCP server is now available globally.")
+print("You can run Claude from any directory and the MCP server will be available.")
+print("\nPlease restart Claude Code for the changes to take effect.")

@@ -94,6 +94,14 @@ export class TaskCoordinatorClient {
     return result.success;
   }
 
+  async cleanAllTasks(): Promise<boolean> {
+    const result = await this.request<{ success: boolean }>('/clean-all-tasks', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    return result.success;
+  }
+
   async checkHealth(): Promise<boolean> {
     try {
       const url = `${this.baseUrl}/api/health`;

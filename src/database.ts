@@ -33,7 +33,7 @@ export class Database {
       CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         description TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('available', 'working', 'done', 'failed')),
+        status TEXT NOT NULL CHECK (status IN ('available', 'claimed', 'working', 'done', 'failed')),
         worker TEXT,
         dependencies TEXT, -- JSON array of task IDs
         output TEXT,

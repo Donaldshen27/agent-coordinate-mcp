@@ -8,7 +8,7 @@ export interface Worker {
 export interface Task {
   id: string;
   description: string;
-  status: 'available' | 'working' | 'done' | 'failed';
+  status: 'available' | 'claimed' | 'working' | 'done' | 'failed';
   worker?: string;
   dependencies: string[];
   output?: string;

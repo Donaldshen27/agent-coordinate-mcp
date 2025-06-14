@@ -123,10 +123,9 @@ export class TaskManagerWithDB {
           return false;
         }
         
-        // Claim the task
-        task.status = 'working';
+        // First claim the task (lock it)
+        task.status = 'claimed';
         task.worker = workerId;
-        task.startedAt = new Date();
         await this.db.updateTask(task);
         
         // Update worker slot
@@ -135,6 +134,12 @@ export class TaskManagerWithDB {
         await this.db.upsertWorkerSlot(worker);
         
         await this.db.commit();
+        
+        // Now update to working status
+        task.status = 'working';
+        task.startedAt = new Date();
+        await this.db.updateTask(task);
+        
         return true;
       } catch (error) {
         await this.db.rollback();
@@ -208,7 +213,7 @@ export class TaskManagerWithDB {
     return this.withLock(`task-${taskId}`, async () => {
       const task = await this.db.getTask(taskId);
       
-      if (!task || task.status !== 'failed') return false;
+      if (!task || (task.status !== 'failed' && task.status !== 'claimed')) return false;
       
       task.status = 'available';
       task.worker = undefined;

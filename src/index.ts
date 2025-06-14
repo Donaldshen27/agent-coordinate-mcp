@@ -174,13 +174,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'reset_failed_task',
-        description: 'Reset a failed task back to available status.',
+        description: 'Reset a failed or claimed task back to available status.',
         inputSchema: {
           type: 'object',
           properties: {
             taskId: {
               type: 'string',
-              description: 'The ID of the failed task to reset',
+              description: 'The ID of the failed or claimed task to reset',
             },
           },
           required: ['taskId'],
